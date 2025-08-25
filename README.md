@@ -2,7 +2,7 @@
 
 A deep learning project for identifying diseases in tea leaves using transfer learning with EfficientNetV2B3 and ResNet50V2 architectures.
 
-!(./images/ouptut.png)
+![Ouput image](./Images/output.png)
 
 ## 🎯 Objective
 

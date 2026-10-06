@@ -1,0 +1,9 @@
+tensorflow>=2.16  # ships Keras 3
+keras>=3.0
+keras-hub  # pretrained ViT from the Hugging Face Hub
+kagglehub  # dataset download
+numpy
+scikit-learn
+matplotlib
+seaborn
+pillow

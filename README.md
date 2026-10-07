@@ -71,6 +71,34 @@ Both models generate detailed confusion matrices showing classification performa
    - F1-score calculation
    - Sample predictions visualization
 
+### Scripts (`src/`)
+
+```bash
+pip install -r requirements.txt
+
+# Download the Kaggle dataset and link it to data/tea-leaves
+python -m src.download_data
+
+# Train + evaluate. Checkpoints: outputs/<model>/checkpoints/{best,last}.keras
+python -m src.train --model efficientnet
+python -m src.train --model resnet --head gap --augment
+python -m src.train --model vit --augment       # pretrained ViT-B/16 from the HF Hub
+python -m src.train --model efficientnet --resume   # continue an interrupted run
+
+# Re-evaluate a saved run, or predict on new images
+python -m src.evaluate --run-dir outputs/efficientnet
+python -m src.predict --run-dir outputs/efficientnet Test_images/01.jpeg Test_images/02.jpg
+```
+
+| File | Purpose |
+|------|---------|
+| `src/config.py` | Dataclass configs (data, training, CNN head, ViT preset/hyperparameters) |
+| `src/download_data.py` | Kaggle dataset download via `kagglehub` |
+| `src/data.py` | Dataset loading and augmentation |
+| `src/models/cnn.py` | EfficientNetV2B3 / ResNet50V2 transfer-learning models |
+| `src/models/vit.py` | Pretrained ViT (KerasHub preset from the Hugging Face Hub) + classification head |
+| `src/train.py`, `src/evaluate.py`, `src/predict.py` | CLI entry points |
+
 ## 🛠️ Technical Requirements
 
 - Python 3.7+

@@ -29,7 +29,6 @@ def _build_transfer_model(base_cls, preprocess, name, image_size, num_classes, c
 
     base = base_cls(weights="imagenet", include_top=False, input_shape=input_shape)
     base.trainable = False
-    # training=False keeps BatchNorm in inference mode, also when fine-tuning later.
     x = base(x, training=False)
 
     outputs = _classification_head(x, num_classes, cfg)
@@ -37,15 +36,12 @@ def _build_transfer_model(base_cls, preprocess, name, image_size, num_classes, c
 
 
 def build_efficientnet(image_size, num_classes, cfg: CNNConfig, augmentation=None):
-    # EfficientNetV2 includes its own Rescaling layer and expects raw [0, 255] pixels.
     return _build_transfer_model(
         EfficientNetV2B3, None, "efficientnetv2b3", image_size, num_classes, cfg, augmentation
     )
 
 
 def build_resnet(image_size, num_classes, cfg: CNNConfig, augmentation=None):
-    # ResNet50V2 ImageNet weights expect pixels scaled to [-1, 1]
-    # (same as keras.applications.resnet_v2.preprocess_input).
     preprocess = layers.Rescaling(scale=1.0 / 127.5, offset=-1.0, name="resnet_v2_preprocess")
     return _build_transfer_model(
         ResNet50V2, preprocess, "resnet50v2", image_size, num_classes, cfg, augmentation

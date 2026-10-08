@@ -19,7 +19,6 @@ def load_datasets(cfg: DataConfig):
             f"Dataset not found at '{cfg.data_dir}'. Run `python -m src.download_data` "
             "or pass --data-dir / set TEA_DATA_DIR."
         )
-    # subset="both" guarantees the two splits are disjoint for a given seed.
     train_ds, val_ds = keras.utils.image_dataset_from_directory(
         cfg.data_dir,
         label_mode="categorical",
@@ -31,8 +30,6 @@ def load_datasets(cfg: DataConfig):
     )
     class_names = train_ds.class_names
 
-    # Shuffle individual samples after caching so every epoch sees a new order
-    # (shuffling cached batches only reorders whole batches).
     train_ds = (
         train_ds.unbatch()
         .cache()
@@ -44,14 +41,31 @@ def load_datasets(cfg: DataConfig):
     return train_ds, val_ds, class_names
 
 
-def build_augmentation() -> keras.Sequential:
-    """Random augmentations on raw [0, 255] pixels, active only during training."""
-    return keras.Sequential(
-        [
+def build_augmentation(strength: str = "light"):
+    """Random augmentations on raw [0, 255] pixels, active only during training.
+
+    "light" matches the original notebook. "strong" uses that a leaf has no
+    canonical orientation, so any rotation or flip keeps the label.
+    Returns None for "none".
+    """
+    if strength == "none":
+        return None
+    if strength == "light":
+        aug_layers = [
             layers.RandomFlip("horizontal"),
             layers.RandomRotation(factor=0.02),
             layers.RandomZoom(height_factor=0.2, width_factor=0.2),
             layers.RandomContrast(factor=0.2),
-        ],
-        name="data_augmentation",
-    )
+        ]
+    elif strength == "strong":
+        aug_layers = [
+            layers.RandomFlip("horizontal_and_vertical"),
+            layers.RandomRotation(factor=0.5),  # up to +-180 degrees
+            layers.RandomTranslation(height_factor=0.1, width_factor=0.1),
+            layers.RandomZoom(height_factor=0.2, width_factor=0.2),
+            layers.RandomBrightness(factor=0.2),
+            layers.RandomContrast(factor=0.3),
+        ]
+    else:
+        raise ValueError(f"Unknown augmentation strength '{strength}'")
+    return keras.Sequential(aug_layers, name="data_augmentation")

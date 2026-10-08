@@ -1,7 +1,4 @@
-"""Predict the disease class of new leaf images with a trained run.
-
-    python -m src.predict --run-dir outputs/efficientnet Test_images/01.jpeg Test_images/02.jpg
-"""
+"""Predict the disease class of new leaf images with a trained run."""
 
 import argparse
 import json
@@ -10,11 +7,10 @@ from pathlib import Path
 import keras
 import numpy as np
 
-import src.models  # noqa: F401  (registers the custom ViT layers for loading)
+import src.models
 
 
 def load_image(path: Path, image_size: int) -> np.ndarray:
-    # Bilinear matches image_dataset_from_directory; load_img defaults to nearest.
     img = keras.utils.load_img(path, target_size=(image_size, image_size), interpolation="bilinear")
     return keras.utils.img_to_array(img)
 
@@ -31,7 +27,6 @@ def main():
     image_size = run_config["data"]["image_size"]
     model = keras.models.load_model(args.run_dir / "model.keras")
 
-    # Preprocessing lives inside the models, so raw [0, 255] pixels go straight in.
     batch = np.stack([load_image(p, image_size) for p in args.images])
     probs = model.predict(batch, verbose=0)
 

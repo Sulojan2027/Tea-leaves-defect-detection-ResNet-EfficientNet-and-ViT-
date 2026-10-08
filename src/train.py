@@ -1,16 +1,4 @@
-"""Train a tea-leaf disease classifier and evaluate it on the validation split.
-
-    python -m src.train --model efficientnet
-    python -m src.train --model resnet --head gap --augment
-    python -m src.train --model vit --augment
-    python -m src.train --model efficientnet --resume   # continue an interrupted run
-
-Outputs go to <output-dir>/<model>/:
-    checkpoints/best.keras   best val_accuracy so far (updated during training)
-    checkpoints/last.keras   end of the latest epoch, incl. optimizer state (--resume)
-    model.keras              final model (best weights, via EarlyStopping)
-    run_config.json, history.csv, metrics.json, confusion_matrix.png, sample_predictions.png
-"""
+"""Train a tea-leaf disease classifier and evaluate it on the validation split."""
 
 import argparse
 import csv
@@ -69,24 +57,36 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=DataConfig.batch_size)
     parser.add_argument("--epochs", type=int, help="default: 30 for CNNs, 20 for ViT")
     parser.add_argument("--learning-rate", type=float, help="default: 1e-3 for CNNs, 2e-5 for ViT")
+    parser.add_argument("--weight-decay", type=float, help="AdamW decay; default: 0 (plain Adam) for CNNs, 1e-4 for ViT")
+    parser.add_argument("--label-smoothing", type=float, default=TrainConfig.label_smoothing)
+    parser.add_argument("--lr-patience", type=int, default=TrainConfig.lr_patience)
     parser.add_argument("--head", choices=["flatten", "gap"], default=CNNConfig.head, help="CNN head")
-    parser.add_argument("--dropout", type=float, default=CNNConfig.dropout, help="CNN head dropout")
-    parser.add_argument("--augment", action="store_true", help="random flip/rotate/zoom/contrast")
+    parser.add_argument("--dropout", type=float, help="head dropout; default: 0 for CNNs, 0.1 for ViT")
+    parser.add_argument(
+        "--augment", nargs="?", const="light", default=TrainConfig.augment,
+        choices=["none", "light", "strong"], help="bare --augment means 'light'",
+    )
     parser.add_argument("--freeze-backbone", action="store_true", help="ViT: train only the head")
     parser.add_argument("--resume", action="store_true", help="continue from checkpoints/last.keras")
     parser.add_argument("--seed", type=int, default=SEED)
     return parser.parse_args()
 
 
-def build_model(args, data_cfg, train_cfg, cnn_cfg, vit_cfg, num_classes):
-    augmentation = build_augmentation() if args.augment else None
-    if args.model == "vit":
+def build_model(model_name, data_cfg, train_cfg, cnn_cfg, vit_cfg, num_classes):
+    augmentation = build_augmentation(train_cfg.augment)
+    if model_name == "vit":
         model = build_vit(vit_cfg, num_classes, augmentation)
-        optimizer = build_optimizer(vit_cfg, args.learning_rate)
+        optimizer = build_optimizer(vit_cfg)
     else:
-        model = CNN_BUILDERS[args.model](data_cfg.image_size, num_classes, cnn_cfg, augmentation)
-        optimizer = keras.optimizers.Adam(learning_rate=args.learning_rate or train_cfg.learning_rate)
-    model.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"])
+        model = CNN_BUILDERS[model_name](data_cfg.image_size, num_classes, cnn_cfg, augmentation)
+        if train_cfg.weight_decay > 0:
+            optimizer = keras.optimizers.AdamW(
+                learning_rate=train_cfg.learning_rate, weight_decay=train_cfg.weight_decay
+            )
+        else:
+            optimizer = keras.optimizers.Adam(learning_rate=train_cfg.learning_rate)
+    loss = keras.losses.CategoricalCrossentropy(label_smoothing=train_cfg.label_smoothing)
+    model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
     return model
 
 
@@ -96,15 +96,36 @@ def main():
     is_vit = args.model == "vit"
 
     vit_cfg = ViTConfig(freeze_backbone=args.freeze_backbone)
-    cnn_cfg = CNNConfig(head=args.head, dropout=args.dropout, augment=args.augment)
+    cnn_cfg = CNNConfig(head=args.head)
+    train_cfg = TrainConfig(
+        output_dir=args.output_dir,
+        label_smoothing=args.label_smoothing,
+        augment=args.augment,
+        lr_patience=args.lr_patience,
+    )
+    if is_vit:
+        vit_cfg.epochs = args.epochs or vit_cfg.epochs
+        vit_cfg.learning_rate = args.learning_rate or vit_cfg.learning_rate
+        if args.weight_decay is not None:
+            vit_cfg.weight_decay = args.weight_decay
+        if args.dropout is not None:
+            vit_cfg.dropout = args.dropout
+        train_cfg.epochs = vit_cfg.epochs
+        train_cfg.learning_rate = vit_cfg.learning_rate
+        train_cfg.weight_decay = vit_cfg.weight_decay
+    else:
+        train_cfg.epochs = args.epochs or train_cfg.epochs
+        train_cfg.learning_rate = args.learning_rate or train_cfg.learning_rate
+        if args.weight_decay is not None:
+            train_cfg.weight_decay = args.weight_decay
+        if args.dropout is not None:
+            cnn_cfg.dropout = args.dropout
     data_cfg = DataConfig(
         data_dir=args.data_dir,
         image_size=vit_cfg.image_size if is_vit else (args.image_size or DataConfig.image_size),
         batch_size=args.batch_size,
         seed=args.seed,
     )
-    train_cfg = TrainConfig(output_dir=args.output_dir)
-    train_cfg.epochs = args.epochs or (vit_cfg.epochs if is_vit else train_cfg.epochs)
 
     train_ds, val_ds, class_names = load_datasets(data_cfg)
     num_classes = len(class_names)
@@ -116,13 +137,11 @@ def main():
     if args.resume:
         if not last_ckpt.exists():
             raise FileNotFoundError(f"--resume given but {last_ckpt} does not exist")
-        # Restores weights and optimizer state (incl. the reduced learning rate).
-        # EarlyStopping/ReduceLROnPlateau patience counters start fresh.
         model = keras.models.load_model(last_ckpt)
         initial_epoch = completed_epochs(run_dir)
         print(f"Resuming from {last_ckpt} at epoch {initial_epoch}")
     else:
-        model = build_model(args, data_cfg, train_cfg, cnn_cfg, vit_cfg, num_classes)
+        model = build_model(args.model, data_cfg, train_cfg, cnn_cfg, vit_cfg, num_classes)
     model.summary()
 
     run_dir.mkdir(parents=True, exist_ok=True)

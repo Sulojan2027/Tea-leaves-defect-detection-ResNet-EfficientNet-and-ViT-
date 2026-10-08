@@ -11,7 +11,7 @@ import keras
 import numpy as np
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 
-import src.models  # noqa: F401  (registers the custom ViT layers for loading)
+import src.models
 from src.config import DataConfig
 from src.data import load_datasets
 from src.visualize import plot_confusion_matrix, plot_sample_predictions
@@ -27,8 +27,6 @@ def collect_predictions(model, dataset):
 
 
 def compute_metrics(y_true, y_pred, class_names):
-    # Micro-F1 equals accuracy for single-label classification, so report
-    # macro/weighted F1, which actually reflect per-class performance.
     labels = list(range(len(class_names)))
     return {
         "accuracy": accuracy_score(y_true, y_pred),
